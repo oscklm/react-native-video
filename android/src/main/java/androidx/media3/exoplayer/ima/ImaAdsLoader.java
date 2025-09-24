@@ -11,15 +11,17 @@ import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.ads.AdsLoader;
 import androidx.media3.exoplayer.source.ads.AdsMediaSource;
 
-import com.google.ads.interactivemedia.v3.api.ImaSdkSettings;
-
 import java.io.IOException;
 
-public class ImaAdsLoader implements AdsLoader {
-    private final ImaSdkSettings imaSdkSettings;
+// Placeholder for removed ads related type
+class ImaSdkSettings {
+    // No-op fake type for compatibility
+}
 
-    public ImaAdsLoader(ImaSdkSettings imaSdkSettings) {
-        this.imaSdkSettings = imaSdkSettings;
+public class ImaAdsLoader implements AdsLoader {
+
+    public ImaAdsLoader() {
+       // No-op constructor
     }
 
     public void setPlayer(ExoPlayer ignoredPlayer) {

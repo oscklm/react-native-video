@@ -167,7 +167,6 @@ android {
         main {
             java {
                 if (ExoplayerDependencies["useExoplayerIMA"]) {
-                    exclude 'com/google/ads/interactivemedia/v3/api'
                     exclude 'androidx/media3/exoplayer/ima'
                 }
 

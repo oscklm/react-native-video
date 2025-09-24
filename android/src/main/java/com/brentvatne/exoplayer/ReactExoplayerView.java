@@ -75,7 +75,6 @@ import androidx.media3.exoplayer.drm.FrameworkMediaDrm;
 import androidx.media3.exoplayer.drm.HttpMediaDrmCallback;
 import androidx.media3.exoplayer.drm.UnsupportedDrmException;
 import androidx.media3.exoplayer.hls.HlsMediaSource;
-import androidx.media3.exoplayer.ima.ImaAdsLoader;
 import androidx.media3.exoplayer.mediacodec.MediaCodecInfo;
 import androidx.media3.exoplayer.mediacodec.MediaCodecUtil;
 import androidx.media3.exoplayer.rtsp.RtspMediaSource;
@@ -129,11 +128,6 @@ import com.facebook.react.bridge.LifecycleEventListener;
 import com.facebook.react.bridge.Promise;
 import com.facebook.react.bridge.UiThreadUtil;
 import com.facebook.react.uimanager.ThemedReactContext;
-import com.google.ads.interactivemedia.v3.api.AdError;
-import com.google.ads.interactivemedia.v3.api.AdErrorEvent;
-import com.google.ads.interactivemedia.v3.api.AdEvent;
-import com.google.ads.interactivemedia.v3.api.ImaSdkFactory;
-import com.google.ads.interactivemedia.v3.api.ImaSdkSettings;
 import com.google.common.collect.ImmutableList;
 
 import java.net.CookieHandler;
@@ -157,9 +151,7 @@ public class ReactExoplayerView extends FrameLayout implements
         Player.Listener,
         BandwidthMeter.EventListener,
         BecomingNoisyListener,
-        DrmSessionEventListener,
-        AdEvent.AdEventListener,
-        AdErrorEvent.AdErrorListener {
+        DrmSessionEventListener {
 
     public static final double DEFAULT_MAX_HEAP_ALLOCATION_PERCENT = 1;
     public static final double DEFAULT_MIN_BUFFER_MEMORY_RESERVE = 0;
@@ -181,7 +173,6 @@ public class ReactExoplayerView extends FrameLayout implements
 
     private ExoPlayerView exoPlayerView;
     private FullScreenPlayerView fullScreenPlayerView;
-    private ImaAdsLoader adsLoader;
 
     private DataSource.Factory mediaDataSourceFactory;
     private ExoPlayer player;
@@ -735,7 +726,7 @@ public class ReactExoplayerView extends FrameLayout implements
             mediaSourceFactory.setDataSourceFactory(RNVSimpleCache.INSTANCE.getCacheFactory(buildHttpDataSourceFactory(true)));
         }
 
-        mediaSourceFactory.setLocalAdInsertionComponents(unusedAdTagUri -> adsLoader, exoPlayerView.getPlayerView());
+        mediaSourceFactory.setLocalAdInsertionComponents(unusedAdTagUri -> null, exoPlayerView.getPlayerView());
 
         player = new ExoPlayer.Builder(getContext(), renderersFactory)
                 .setTrackSelector(self.trackSelector)
@@ -764,38 +755,7 @@ public class ReactExoplayerView extends FrameLayout implements
         }
     }
 
-    private AdsMediaSource initializeAds(MediaSource videoSource, Source runningSource) {
-        AdsProps adProps = runningSource.getAdsProps();
-        Uri uri = runningSource.getUri();
-        if (adProps != null && uri != null) {
-            Uri adTagUrl = adProps.getAdTagUrl();
-            if (adTagUrl != null) {
-                // Create an AdsLoader.
-                ImaAdsLoader.Builder imaLoaderBuilder = new ImaAdsLoader
-                        .Builder(themedReactContext)
-                        .setAdEventListener(this)
-                        .setAdErrorListener(this);
-
-                if (adProps.getAdLanguage() != null) {
-                    ImaSdkSettings imaSdkSettings = ImaSdkFactory.getInstance().createImaSdkSettings();
-                    imaSdkSettings.setLanguage(adProps.getAdLanguage());
-                    imaLoaderBuilder.setImaSdkSettings(imaSdkSettings);
-                }
-                adsLoader = imaLoaderBuilder.build();
-                adsLoader.setPlayer(player);
-                if (adsLoader != null) {
-                    DefaultMediaSourceFactory mediaSourceFactory = new DefaultMediaSourceFactory(mediaDataSourceFactory)
-                            .setLocalAdInsertionComponents(unusedAdTagUri -> adsLoader, exoPlayerView.getPlayerView());
-                    DataSpec adTagDataSpec = new DataSpec(adTagUrl);
-                    return new AdsMediaSource(videoSource,
-                            adTagDataSpec,
-                            ImmutableList.of(uri, adTagUrl),
-                            mediaSourceFactory, adsLoader, exoPlayerView.getPlayerView());
-                }
-            }
-        }
-
-        return null;
+    private void initializeAds(MediaSource videoSource, Source runningSource) {
     }
 
     private DrmSessionManager buildDrmSessionManager(UUID uuid, DRMProps drmProps) throws UnsupportedDrmException {
@@ -833,23 +793,22 @@ public class ReactExoplayerView extends FrameLayout implements
         if (runningSource.getUri() == null) {
             return;
         }
-        /// init DRM
+        // Initialize DRM if needed
         DrmSessionManager drmSessionManager = initializePlayerDrm();
         if (drmSessionManager == null && runningSource.getDrmProps() != null && runningSource.getDrmProps().getDrmType() != null) {
-            // Failed to initialize DRM session manager - cannot continue
             DebugLog.e(TAG, "Failed to initialize DRM Session Manager Framework!");
             return;
         }
-        // init source to manage ads (external text tracks are now handled in MediaItem)
-        MediaSource videoSource = buildMediaSource(runningSource.getUri(),
+        // Build the media source (no ads)
+        MediaSource mediaSource = buildMediaSource(
+                runningSource.getUri(),
                 runningSource.getExtension(),
                 drmSessionManager,
                 runningSource.getCropStartMs(),
-                runningSource.getCropEndMs());
-        MediaSource mediaSourceWithAds = initializeAds(videoSource, runningSource);
-        MediaSource mediaSource = Objects.requireNonNullElse(mediaSourceWithAds, videoSource);
+                runningSource.getCropEndMs()
+        );
 
-        // wait for player to be set
+        // Wait for player to be set
         while (player == null) {
             try {
                 wait();
@@ -1220,10 +1179,6 @@ public class ReactExoplayerView extends FrameLayout implements
             player = null;
         }
 
-        if (adsLoader != null) {
-            adsLoader.release();
-            adsLoader = null;
-        }
         progressHandler.removeMessages(SHOW_PROGRESS);
         audioBecomingNoisyReceiver.removeListener();
         pictureInPictureReceiver.removeListener();
@@ -1656,8 +1611,7 @@ public class ReactExoplayerView extends FrameLayout implements
         Track track = new Track();
         track.setIndex(trackIndex);
         if (format.sampleMimeType != null) track.setMimeType(format.sampleMimeType);
-        if (format.language != null) track.setLanguage(format.language);
-        if (format.label != null) track.setTitle(format.label);
+        if (format.language != null) track.setTitle(format.label);
         track.setSelected(isTrackSelected(selection, group, trackIndex));
         return track;
     }
@@ -2475,6 +2429,7 @@ public class ReactExoplayerView extends FrameLayout implements
                 }
                 addView(exoPlayerView, 0, layoutParams);
                 reLayoutControls();
+                setControls(controls);
             }
         }
     }
@@ -2714,25 +2669,7 @@ public class ReactExoplayerView extends FrameLayout implements
         exoPlayerView.setShutterColor(color);
     }
 
-    @Override
-    public void onAdEvent(AdEvent adEvent) {
-        if (adEvent.getAdData() != null) {
-            eventEmitter.onReceiveAdEvent.invoke(adEvent.getType().name(), adEvent.getAdData());
-        } else {
-            eventEmitter.onReceiveAdEvent.invoke(adEvent.getType().name(), null);
-        }
-    }
-
-    @Override
-    public void onAdError(AdErrorEvent adErrorEvent) {
-        AdError error = adErrorEvent.getError();
-        Map<String, String> errMap = Map.of(
-                "message", error.getMessage(),
-                "code", String.valueOf(error.getErrorCode()),
-                "type", String.valueOf(error.getErrorType())
-        );
-        eventEmitter.onReceiveAdEvent.invoke("ERROR", errMap);
-    }
+  
 
     public void setControlsStyles(ControlsConfig controlsStyles) {
         controlsConfig = controlsStyles;
